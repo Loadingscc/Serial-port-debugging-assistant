@@ -3,7 +3,9 @@
 
 #include <QDebug>
 #include <QTimer>
+#include <QDateTime>
 #include <QMessageBox>
+#include <QFileDialog>
 #include <QSerialPortInfo>
 #include <QtSerialPort/QSerialPort>
 #include <QtSerialPort/QSerialPortInfo>
@@ -13,7 +15,9 @@ Widget::Widget(QWidget *parent)
     : QWidget(parent)
     , ui(new Ui::Widget)
 {
+
     ui->setupUi(this);
+    this->setWindowTitle("橙火调试助手");//设置窗口名
     ui->textEdit->setReadOnly(true);
     ui->textEdit_2->setReadOnly(true);
 
@@ -22,6 +26,13 @@ Widget::Widget(QWidget *parent)
     URAT_update = new QTimer(this);
     connect(URAT_update,&QTimer::timeout,this,&Widget::update_urat);
     URAT_update->start();
+
+    T_send = new QTimer(this);
+    connect(T_send, &QTimer::timeout, this, &Widget::get_T);
+    T_send->start(30);
+
+    auto_send = new QTimer(this);
+    connect(auto_send, &QTimer::timeout, this, &Widget::on_pushButton_2_clicked);
 }
 
 Widget::~Widget()
@@ -60,6 +71,13 @@ void Widget::on_pushButton_clicked()
             return;
         }
         qDebug()<<"串口打开成功!";
+
+        ui->comboBox->setEnabled(false);
+        ui->comboBox_2->setEnabled(false);
+        ui->comboBox_3->setEnabled(false);
+        ui->comboBox_4->setEnabled(false);
+        ui->comboBox_5->setEnabled(false);
+
         ui->pushButton->setText("关闭串口");
         if (ui->pushButton->text() == "打开串口"){
             URAT_update->start();
@@ -87,8 +105,19 @@ void Widget::on_pushButton_clicked()
         }
 
         m_serialPort->setFlowControl(QSerialPort::NoFlowControl);//无流控制
-        m_serialPort->setParity(QSerialPort::NoParity); //无校验位
 
+        if(ui->comboBox_5->currentText().toStdString() == "无"){
+            m_serialPort->setParity(QSerialPort::NoParity); //无校验位
+            qDebug() << "无";
+        }
+        else if (ui->comboBox_5->currentText().toStdString() == "奇"){
+            m_serialPort->setParity(QSerialPort::EvenParity); //无校验位
+            qDebug() << "奇";
+        }
+        else{
+            m_serialPort->setParity(QSerialPort::MarkParity); //无校验位
+            qDebug() << "偶";
+        }
 
         connect(m_serialPort,SIGNAL(readyRead()),this,SLOT(receiveInfo()));
         QObject::connect(m_serialPort,&QSerialPort::readyRead,this,&Widget::Serial_readAll);
@@ -96,11 +125,18 @@ void Widget::on_pushButton_clicked()
     else{
         m_serialPort->close();
         ui->pushButton->setText("打开串口");
+        ui->comboBox->setEnabled(true);
+        ui->comboBox_2->setEnabled(true);
+        ui->comboBox_3->setEnabled(true);
+        ui->comboBox_4->setEnabled(true);
+        ui->comboBox_5->setEnabled(true);
     }
 }
 
 void Widget::on_pushButton_2_clicked()
 {
+    QByteArray buf; //二进制
+    if (update_HEX_ASCII == 0){
         QByteArray str = ui->lineEdit->text().toUtf8();
 
         if(m_serialPort->isOpen())
@@ -108,28 +144,158 @@ void Widget::on_pushButton_2_clicked()
             m_serialPort->write(str);
             ui->textEdit_2->append(str);
         }
-        else
-        {
-            QMessageBox::warning(this, tr("警告"),tr("发送失败"), QMessageBox::Yes);
+    }
+    else{
+        QByteArray str = ui->lineEdit->text().toUtf8();
+        buf = str.toHex().toUpper();
+        buf = str.toHex().toUpper();
+        for (int nIndex = 3; nIndex < str.size();nIndex += 3) {
+                buf = buf.insert(nIndex-1," ");
         }
+        if(m_serialPort->isOpen())
+        {
+            m_serialPort->write(buf);
+            ui->textEdit_2->append(buf);
+        }
+    }
 }
 
 void Widget::Serial_readAll(){
     QByteArray buf; //二进制
     buf=m_serialPort->readAll();
-    if(!buf.isEmpty())
-    {
-        QString str=buf;
-        if(str.endsWith(" THE END "))
-        {
-            ui->textEdit->append("I get");
+    if (input_HEX_ASCII == 0){
+        if (stop_flag == 0){
+            if (note_flag == 1){
+                QDateTime current_time = QDateTime::currentDateTime();
+                QString currentTime = current_time.toString("yyyy-MM-dd hh:mm:ss");
+                ui->textEdit->append(currentTime);
+            }
+            if(!buf.isEmpty())
+            {
+                QString str=QString::fromLocal8Bit(buf);
+                if(str.endsWith(" THE END "))
+                {
+                    ui->textEdit->append("I get");
+                }
+                ui->textEdit->append(str);
+            }
+            buf.clear();
         }
-        ui->textEdit->append(str);
     }
-    buf.clear();
+    else{
+        if(stop_flag == 0){
+            if (note_flag == 1){
+                QDateTime current_time = QDateTime::currentDateTime();
+                QString currentTime = current_time.toString("yyyy-MM-dd hh:mm:ss");
+                ui->textEdit->append(currentTime);
+            }
+            if(!buf.isEmpty())
+            {
+                QString str=QString::fromLocal8Bit(buf);
+                str = buf.toHex().toUpper();
+                str = buf.toHex().toUpper();
+                for (int nIndex = 3; nIndex < str.size();nIndex += 3) {
+                        str = str.insert(nIndex-1," ");
+                }
+                if(str.endsWith(" THE END "))
+                {
+                    ui->textEdit->append("I get");
+                }
+                ui->textEdit->append(str);
+            }
+            buf.clear();
+        }
+    }
 }
 
 void Widget::on_clear_input_btn_clicked()
 {
     ui->textEdit->clear();
+}
+
+void Widget::on_radioButton_clicked()
+{
+    input_HEX_ASCII = 0;
+}
+
+void Widget::on_radioButton_2_clicked()
+{
+    input_HEX_ASCII = 1;
+}
+
+
+void Widget::on_radioButton_3_clicked()
+{
+    update_HEX_ASCII = 0;
+}
+
+void Widget::on_radioButton_4_clicked()
+{
+    update_HEX_ASCII = 1;
+}
+
+void Widget::get_T(){
+    T_string = ui->lineEdit_2->text();
+    t_num = T_string.toInt();
+}
+
+void Widget::on_checkBox_4_clicked()
+{
+    if (auto_sent_flag == 0){
+        auto_sent_flag = 1;
+        auto_send->start(t_num);
+        ui->lineEdit_2->setEnabled(false);
+    }
+    else{
+        auto_sent_flag = 0;
+        auto_send->stop();
+        ui->lineEdit_2->setEnabled(true);
+    }
+}
+
+void Widget::on_checkBox_clicked()
+{
+    if (stop_flag == 0){
+        stop_flag = 1;
+    }
+    else{
+        stop_flag = 0;
+    }
+}
+
+void Widget::on_checkBox_2_clicked()
+{
+    if(note_flag == 0){
+        note_flag = 1;
+    }
+    else{
+        note_flag = 0;
+    }
+}
+
+void Widget::on_pushButton_4_clicked()
+{
+    QString textFile = QFileDialog::getSaveFileName(this,tr("Save txt"),
+                                                            "",tr("text (*.txt)")); //选择路径
+     //将文本框数据取出并按行排列
+    QFile file(textFile);//文件命名
+    if (!file.open(QFile::WriteOnly | QFile::Text))     //检测文件是否打开
+    {
+        QMessageBox::information(this, "Error Message", "Please Select a Text File!");
+        return;
+    }
+    QTextStream out(&file);                 //分行写入文件
+    out << ui->textEdit->toPlainText();
+}
+
+void Widget::on_checkBox_3_clicked()
+{
+    if(new_line_input == 0){
+        new_line_input = 1;
+        QMessageBox::information(this, "Error", "未开发此功能!\n具体请咨询2111实验室");
+    }
+    else{
+        new_line_input = 0;
+        QMessageBox::information(this, "Error", "未开发此功能!\n具体请咨询2111实验室");
+    }
 }
